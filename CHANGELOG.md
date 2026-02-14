@@ -12,10 +12,10 @@
 
 | Week | Deliverable | Status | Tests |
 |------|------------|--------|-------|
-| 1 | Docker-compose demo stack + `slow-by-design.json` + `fixed-by-advisor.json` + synthetic exporter | [partial] | Demo dashboards created; Docker stack deferred |
+| 1 | Docker-compose demo stack + `slow-by-design.json` + `fixed-by-advisor.json` + synthetic exporter | [x] | 5 containers up, dashboards provisioned, metrics flowing |
 | 2–3 | Analysis engine core — first 8 rules (Q1, Q2, Q3, Q10, D1, D2, D5, D7) + scoring | [x] | Unit: 92 findings on slow, 0 on fixed |
 | 4 | CLI + remaining static rules (Q4–Q9, D4, D6, D8–D10) + `--fix` mode | [x] | Unit: 92 findings on slow, 0 on fixed. Integration: `--fix` reduces to 41 findings |
-| 5–6 | React web UI with recommendation cards | [ ] | Manual: end-to-end flow across Grafana + advisor UI |
+| 5–6 | Web UI with recommendation cards | [x] | Manual: upload JSON → score gauge + finding cards + auto-fix download |
 
 ### Phase 2: Live Enrichment + Grafana Plugin (weeks 7–10)
 
@@ -35,6 +35,32 @@
 ---
 
 ## Completed Work
+
+### Phase 1, Weeks 1 + 5–6: Docker demo stack + Web UI (2026-02-15)
+
+**Docker Compose demo stack (Week 1 — previously deferred):**
+- `cmd/demo-exporter/main.go` — synthetic exporter generating all metrics referenced by demo dashboards (http_requests_total, node_cpu_seconds_total, histograms, etc.) with configurable cardinality (2 instances, 10 pods, 3 namespaces)
+- `Dockerfile.exporter` — multi-stage Go build
+- `demo/prometheus/prometheus.yml` — 5s scrape interval, `honor_labels: true`, external_labels for Thanos
+- `demo/grafana/provisioning/` — auto-provisions 3 datasources (prometheus-main, prometheus-secondary, thanos-querier) and both demo dashboards
+- `docker-compose.yml` — 5 services: exporter, prometheus, thanos-sidecar, thanos-querier, grafana (anonymous admin)
+
+**Web UI (Weeks 5–6):**
+- `web/index.html` — self-contained SPA (dark theme, no dependencies, no npm). Score gauge, metadata bar, finding cards grouped by severity, auto-fix download button
+- `web/embed.go` — `go:embed` for single-binary deployment
+- `pkg/server/server.go` — HTTP handlers: `POST /api/analyze`, `POST /api/fix`, `GET /`
+- `pkg/analyzer/engine.go` — added `AnalyzeBytes([]byte)` method for HTTP API
+- `cmd/dashboard-advisor/main.go` — added `--serve` and `--addr` flags
+
+**Demo dashboard fixes (discovered during integration):**
+- Fixed `instance` variable: changed from structured `qryType` object to plain string `query_result(count by(instance) (up))` with regex to extract clean values
+- Added `description` to Total Throughput panel explaining Q10 is broken by design
+- Added `"error"` status to exporter so Error Ratio panel shows data
+- Reduced instances from 20→2 to prevent browser overload from repeat panels
+
+**Verification:** All tests pass. slow-by-design: 92 findings, score 12/100. fixed-by-advisor: 0 findings, score 100/100.
+
+---
 
 ### Scoring formula change: linear → asymptotic (2026-02-14)
 
@@ -115,6 +141,13 @@
 3. **Go regex replacement treats `$` as special.** When replacing hardcoded intervals with `$__rate_interval` in the fixer, must use `$$` in the replacement string to produce a literal `$`.
 4. **D8/Q9 duplicate thresholds must be >2 (not >=2).** Two panels sharing a query is normal (e.g., timeseries + stat showing same metric). Only flag at 3+ panels to avoid false positives on the fixed dashboard.
 5. **Linear scoring with clamping hides progress.** `100 − penalty` clamped to 0 means a dashboard with 92 findings and one with 41 findings both score 0 — demoralizing and uninformative. Asymptotic formula (`100 × k / (penalty + k)`) ensures every fix is visible in the score. No industry tool (Lighthouse, SonarQube, CodeClimate) uses linear-clamp scoring for this reason.
+6. **Grafana variable `qryType` is unreliable across versions.** The structured variable query object (`qryType: 0–5`) maps to different backend behaviors across Grafana 10/11/12 and often sends queries to the wrong endpoint (e.g., `/api/v1/series` instead of `/api/v1/query`). Use a plain string `query` field with `query_result(expr)` wrapper for raw PromQL — this uses Grafana's classic query mode which is stable.
+7. **`query_result()` returns formatted strings, not raw label values.** Output looks like `{instance="foo:9090"} 1`. A regex on the variable definition is required to extract the actual value.
+8. **`honor_labels: true` is mandatory when exporters set their own `job`/`instance` labels.** Without it, Prometheus silently overwrites them with the scrape config's job name and target address. This caused all queries with `job="api-server"` to return no data because everything was `job="exporter"`.
+9. **Thanos sidecar exits immediately without `external_labels`.** Prometheus must have at least one `external_labels` entry for Thanos sidecar to start. Not mentioned in most quick-start guides.
+10. **Prometheus auto-generates `up` metrics per scrape target.** Even with `honor_labels: true`, Prometheus creates `up{instance="exporter:9099"}` alongside exporter-emitted `up` metrics. Variable queries on `up` will return this extra instance — filter with regex.
+11. **Demo dashboards with `repeat` panels can crash the browser.** 20 instances × 1 repeat panel = 20 panels firing queries simultaneously. Keep cardinality low (2–5 instances) for demo environments. The D2 rule exists to catch this in production.
+12. **"Bad by design" panels must still be functional.** A demo dashboard that shows "No data" everywhere teaches nothing. Every anti-pattern panel must render data — except panels demonstrating syntactically invalid PromQL (mark those clearly in the title).
 
 ---
 

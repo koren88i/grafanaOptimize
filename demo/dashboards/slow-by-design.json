@@ -336,7 +336,8 @@
         "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "tooltip": { "mode": "single", "sort": "none" }
       },
-      "title": "Total Throughput",
+      "title": "Total Throughput (Q10 - broken by design)",
+      "description": "This panel uses rate(sum(metric)[5m]) which is intentionally invalid PromQL. The correct order is sum(rate(metric[5m])). Prometheus rejects this query because range selectors [5m] can only be applied to vector selectors, not aggregation results. This is the anti-pattern that rule Q10 (Incorrect aggregation order) detects.",
       "type": "timeseries",
       "targets": [
         {
@@ -1812,7 +1813,7 @@
           "type": "prometheus",
           "uid": "prometheus-main"
         },
-        "definition": "count by(instance) (up)",
+        "definition": "query_result(count by(instance) (up))",
         "description": "Select an instance to filter by",
         "hide": 0,
         "includeAll": true,
@@ -1820,13 +1821,9 @@
         "multi": true,
         "name": "instance",
         "options": [],
-        "query": {
-          "qryType": 0,
-          "query": "count by(instance) (up)",
-          "refId": "StandardVariableQuery"
-        },
+        "query": "query_result(count by(instance) (up))",
         "refresh": 2,
-        "regex": "",
+        "regex": "/.*\"(instance-[^\"]+)\".*/",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
