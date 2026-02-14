@@ -52,42 +52,42 @@ func TestComputeScore(t *testing.T) {
 		{
 			name: "one critical finding",
 			findings: []Finding{
-				{Severity: Critical},
+				{Severity: Critical}, // penalty=15 → 100*100/115 = 87
 			},
-			want: 85,
+			want: 87,
 		},
 		{
 			name: "mixed severities",
 			findings: []Finding{
-				{Severity: Critical}, // -15
-				{Severity: High},     // -10
-				{Severity: Medium},   // -5
-				{Severity: Low},      // -2
+				{Severity: Critical}, // 15
+				{Severity: High},     // 10
+				{Severity: Medium},   // 5
+				{Severity: Low},      // 2  → penalty=32 → 100*100/132 = 76
 			},
-			want: 68,
+			want: 76,
 		},
 		{
-			name: "score clamps to zero",
+			name: "high penalty still yields non-zero score",
 			findings: []Finding{
-				{Severity: Critical}, // -15
-				{Severity: Critical}, // -15
-				{Severity: Critical}, // -15
-				{Severity: Critical}, // -15
-				{Severity: Critical}, // -15
-				{Severity: Critical}, // -15
-				{Severity: Critical}, // -15 = -105 → 0
+				{Severity: Critical}, // 15
+				{Severity: Critical}, // 15
+				{Severity: Critical}, // 15
+				{Severity: Critical}, // 15
+				{Severity: Critical}, // 15
+				{Severity: Critical}, // 15
+				{Severity: Critical}, // 15 → penalty=105 → 100*100/205 = 49
 			},
-			want: 0,
+			want: 49,
 		},
 		{
 			name: "many medium findings",
 			findings: []Finding{
-				{Severity: Medium}, // -5
-				{Severity: Medium}, // -5
-				{Severity: Medium}, // -5
-				{Severity: Medium}, // -5
+				{Severity: Medium}, // 5
+				{Severity: Medium}, // 5
+				{Severity: Medium}, // 5
+				{Severity: Medium}, // 5 → penalty=20 → 100*100/120 = 83
 			},
-			want: 80,
+			want: 83,
 		},
 	}
 

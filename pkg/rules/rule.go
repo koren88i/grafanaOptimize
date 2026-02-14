@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/dashboard-advisor/pkg/extractor"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -96,15 +97,26 @@ type AnalysisContext struct {
 	ParsedExprs map[string]parser.Expr             // raw expr → parsed AST
 }
 
-// ComputeScore calculates the composite health score from findings.
-// score = 100 − Σ(severity_weight × violation_count), clamped to [0, 100].
+// ComputeScore calculates the composite health score from findings using
+// an asymptotic formula that ensures every fix visibly improves the score.
+//
+//	score = round(100 × k / (penalty + k))
+//
+// where penalty = Σ(severity_weight) and k is a tuning constant (100).
+// Properties:
+//   - 0 penalty → 100 (perfect)
+//   - penalty = k → 50 (midpoint: ~10 High findings or ~7 Critical)
+//   - Score approaches 0 but never reaches it — every fix always moves the needle
+//   - No clamping needed; the formula naturally stays in (0, 100]
 func ComputeScore(findings []Finding) int {
-	score := 100
+	penalty := 0
 	for _, f := range findings {
-		score -= SeverityWeight(f.Severity)
+		penalty += SeverityWeight(f.Severity)
 	}
-	if score < 0 {
-		score = 0
+	if penalty == 0 {
+		return 100
 	}
+	const k = 100.0
+	score := int(math.Round(100.0 * k / (float64(penalty) + k)))
 	return score
 }

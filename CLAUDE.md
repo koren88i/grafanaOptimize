@@ -134,9 +134,17 @@ Rules are identified by stable IDs. Each rule produces a `Finding` with: rule ID
 ## Scoring
 
 ```
-score = 100 − Σ(severity_weight × violation_count), clamped to [0, 100]
+score = round(100 × k / (penalty + k))    where penalty = Σ(severity_weight), k = 100
 ```
 Severity weights: Critical = 15, High = 10, Medium = 5, Low = 2.
+
+Uses an asymptotic formula instead of linear subtraction. Properties:
+- 0 penalty → score 100 (perfect)
+- penalty = k (100) → score 50 (midpoint: ~10 High findings or ~7 Critical)
+- Score approaches 0 but never reaches it — every fix always moves the needle
+- No clamping needed; the formula naturally stays in (0, 100]
+
+**Why not linear?** The old `100 − penalty` formula clamped to 0, hiding progress. A dashboard with 92 findings scored 0, and after `--fix` removed 50 findings it still scored 0 — no visible improvement. The asymptotic formula ensures incremental fixes are always reflected in the score (e.g., 12 → 17 after auto-fix).
 
 ## Demo dashboard mapping
 

@@ -51,6 +51,15 @@ func DefaultEngine() *Engine {
 	return e
 }
 
+// AnalyzeBytes parses raw dashboard JSON bytes and runs the full analysis pipeline.
+func (e *Engine) AnalyzeBytes(data []byte) (*rules.Report, error) {
+	dash, err := extractor.ParseDashboard(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing dashboard: %w", err)
+	}
+	return e.AnalyzeDashboard(dash), nil
+}
+
 // AnalyzeFile loads a dashboard JSON file and runs the full analysis pipeline.
 func (e *Engine) AnalyzeFile(path string) (*rules.Report, error) {
 	dash, err := extractor.LoadDashboard(path)

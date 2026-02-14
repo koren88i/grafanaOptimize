@@ -133,7 +133,7 @@ For each dashboard:
 
 3. **Analyze**: Run all registered rules against the `AnalysisContext`. Each rule returns zero or more `Finding` structs. Rules are independent and stateless — they can run in parallel.
 
-4. **Score**: Compute composite score: `100 − Σ(severity_weight × len(findings_at_severity))`, clamped to [0,100]. Compute per-panel scores similarly.
+4. **Score**: Compute composite score using asymptotic formula: `round(100 × k / (penalty + k))` where `penalty = Σ(severity_weight)` and `k = 100`. Score approaches 0 but never reaches it — every fix always improves the score. Compute per-panel scores similarly.
 
 5. **Output**: Format as JSON, human-readable text, or SARIF depending on CLI flags. For `--fix` mode, apply auto-fixable rules to produce a patched dashboard JSON.
 

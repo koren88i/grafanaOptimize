@@ -36,6 +36,26 @@
 
 ## Completed Work
 
+### Scoring formula change: linear → asymptotic (2026-02-14)
+
+**Problem:** The old scoring formula (`100 − Σ(severity_weight)`, clamped to 0) hid progress on severely bad dashboards. The slow-by-design dashboard scored 0/100, and after `--fix` removed 50 findings it still scored 0/100 — no visible improvement. Users couldn't see that auto-fix helped.
+
+**Fix:** Replaced with asymptotic formula: `round(100 × k / (penalty + k))` where `k = 100`. Properties:
+- Score approaches 0 but never reaches it — every fix always moves the needle
+- No clamping needed; formula naturally stays in (0, 100]
+- penalty = k (100 points) → score = 50 (midpoint)
+
+**New scores:**
+| Dashboard | Old Score | New Score |
+|---|---|---|
+| slow-by-design.json (92 findings) | 0/100 | 12/100 |
+| After --fix (41 findings) | 0/100 | 17/100 |
+| fixed-by-advisor.json (0 findings) | 100/100 | 100/100 |
+
+**Files changed:** `pkg/rules/rule.go` (ComputeScore), `pkg/rules/rule_test.go`, CLAUDE.md, ARCHITECTURE.md, docs/RESEARCH.md, CHANGELOG.md
+
+---
+
 ### Phase 1, Weeks 1–4: Demo dashboards + full analysis engine + CLI + auto-fix
 
 **Demo dashboards:**
@@ -94,6 +114,7 @@
 2. **`rate(sum(metric)[5m])` is syntactically invalid PromQL.** The Prometheus parser rejects it ("ranges only allowed for vector selectors"). Q10 detects this via string-level pattern matching, not AST walking.
 3. **Go regex replacement treats `$` as special.** When replacing hardcoded intervals with `$__rate_interval` in the fixer, must use `$$` in the replacement string to produce a literal `$`.
 4. **D8/Q9 duplicate thresholds must be >2 (not >=2).** Two panels sharing a query is normal (e.g., timeseries + stat showing same metric). Only flag at 3+ panels to avoid false positives on the fixed dashboard.
+5. **Linear scoring with clamping hides progress.** `100 − penalty` clamped to 0 means a dashboard with 92 findings and one with 41 findings both score 0 — demoralizing and uninformative. Asymptotic formula (`100 × k / (penalty + k)`) ensures every fix is visible in the score. No industry tool (Lighthouse, SonarQube, CodeClimate) uses linear-clamp scoring for this reason.
 
 ---
 
