@@ -1,0 +1,17 @@
+# Build output
+dashboard-advisor.exe
+dashboard-advisor
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Babysitter runtime state
+.a5c/
+
+# Claude local settings
+.claude/settings.local.json
