@@ -59,18 +59,28 @@ func (r *HighCardinalityGrouping) Check(ctx *AnalysisContext) []Finding {
 				// Check for known high-cardinality labels
 				for _, lbl := range agg.Grouping {
 					if highCardinalityLabels[lbl] {
+						confidence := 0.85
+						why := fmt.Sprintf("Aggregation groups by %q, which is typically a very high-cardinality label. This can produce thousands of output series.", lbl)
+
+						if ctx.Cardinality != nil {
+							if valCount := ctx.Cardinality.LabelCardinality(lbl, 0); valCount > 0 {
+								confidence = 0.95
+								why = fmt.Sprintf("Aggregation groups by %q, which has %d distinct values. This produces up to %d output series per inner series.", lbl, valCount, valCount)
+							}
+						}
+
 						findings = append(findings, Finding{
 							RuleID:      "Q4",
 							Severity:    High,
 							PanelIDs:    []int{panel.ID},
 							PanelTitles: []string{panel.Title},
 							Title:       "High-cardinality grouping label",
-							Why:         fmt.Sprintf("Aggregation groups by %q, which is typically a very high-cardinality label. This can produce thousands of output series.", lbl),
+							Why:         why,
 							Fix:         fmt.Sprintf("Remove %q from the group-by clause or replace it with a lower-cardinality label (e.g. namespace, job).", lbl),
 							Impact:      "Dramatically reduces the number of output series",
 							Validate:    "Query Inspector → Stats tab → check result series count before/after",
 							AutoFixable: false,
-							Confidence:  0.85,
+							Confidence:  confidence,
 						})
 					}
 				}

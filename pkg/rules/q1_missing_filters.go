@@ -46,18 +46,30 @@ func (r *MissingFilters) Check(ctx *AnalysisContext) []Finding {
 						}
 					}
 				}
+				confidence := 0.9
+				impact := "Reduces series scanned by ~10-100x depending on cardinality"
+				why := fmt.Sprintf("Query selects all series for metric %q without any label filters. This forces a full scan across all label combinations.", metricName)
+
+				if ctx.Cardinality != nil {
+					if seriesCount := ctx.Cardinality.EstimatedSeries(metricName, 0); seriesCount > 0 {
+						confidence = 0.95
+						why = fmt.Sprintf("Query selects all %d series for metric %q without any label filters. This forces a full scan across all label combinations.", seriesCount, metricName)
+						impact = fmt.Sprintf("This metric has %d active series — adding filters could reduce scans by 10-100x", seriesCount)
+					}
+				}
+
 				findings = append(findings, Finding{
 					RuleID:      "Q1",
 					Severity:    Critical,
 					PanelIDs:    []int{panel.ID},
 					PanelTitles: []string{panel.Title},
 					Title:       "Missing label filters",
-					Why:         fmt.Sprintf("Query selects all series for metric %q without any label filters. This forces a full scan across all label combinations.", metricName),
+					Why:         why,
 					Fix:         fmt.Sprintf("Add label matchers to narrow the selection, e.g. %s{job=\"...\", namespace=\"...\"}", metricName),
-					Impact:      "Reduces series scanned by ~10-100x depending on cardinality",
+					Impact:      impact,
 					Validate:    "Query Inspector → Stats tab → check 'Series fetched' before/after",
 					AutoFixable: false,
-					Confidence:  0.9,
+					Confidence:  confidence,
 				})
 				return nil
 			})

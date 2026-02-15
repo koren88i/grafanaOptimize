@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dashboard-advisor/pkg/analyzer"
+	"github.com/dashboard-advisor/pkg/cardinality"
 	"github.com/dashboard-advisor/pkg/extractor"
 	"github.com/dashboard-advisor/pkg/rules"
 )
@@ -773,6 +774,168 @@ func TestD10_FixedDashboard(t *testing.T) {
 
 	if len(findings) > 0 {
 		t.Errorf("D10 should find no issues in fixed dashboard, got %d:", len(findings))
+		for _, f := range findings {
+			t.Logf("  %s", f.Why)
+		}
+	}
+}
+
+// --- B1: No Thanos query-frontend ---
+
+func TestB1_SlowDashboard(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	rule := &rules.NoQueryFrontend{}
+	findings := rule.Check(ctx)
+
+	if len(findings) == 0 {
+		t.Fatal("B1 should detect missing query-frontend on slow dashboard (has thanos-querier datasource)")
+	}
+	t.Logf("B1 found %d findings:", len(findings))
+	for _, f := range findings {
+		t.Logf("  [%s] %s — %s", f.Severity, f.Title, f.Why)
+		if f.RuleID != "B1" {
+			t.Errorf("finding has RuleID %q, want B1", f.RuleID)
+		}
+		if f.Severity != rules.Critical {
+			t.Errorf("finding has severity %s, want Critical", f.Severity)
+		}
+	}
+}
+
+func TestB1_NoDatasourceThanos(t *testing.T) {
+	// Fixed dashboard uses only prometheus-main, no thanos
+	ctx := buildContext(t, "fixed-by-advisor.json")
+	rule := &rules.NoQueryFrontend{}
+	findings := rule.Check(ctx)
+
+	if len(findings) > 0 {
+		t.Errorf("B1 should not fire on dashboard without Thanos datasources, got %d findings", len(findings))
+	}
+}
+
+// --- B5: Deduplication overhead ---
+
+func TestB5_SlowDashboard(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	rule := &rules.DeduplicationOverhead{}
+	findings := rule.Check(ctx)
+
+	if len(findings) == 0 {
+		t.Fatal("B5 should detect Thanos dedup overhead on slow dashboard")
+	}
+	for _, f := range findings {
+		if f.RuleID != "B5" {
+			t.Errorf("finding has RuleID %q, want B5", f.RuleID)
+		}
+	}
+}
+
+// --- B6: High cardinality ---
+
+func TestB6_WithHighCardinality(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	ctx.Cardinality = &cardinality.CardinalityData{
+		HeadSeriesCount: 2_000_000,
+	}
+	rule := &rules.HighCardinality{}
+	findings := rule.Check(ctx)
+
+	if len(findings) != 1 {
+		t.Fatalf("B6 should find 1 issue with 2M series, got %d", len(findings))
+	}
+	if findings[0].Confidence < 0.9 {
+		t.Errorf("B6 confidence = %f, want >= 0.9", findings[0].Confidence)
+	}
+}
+
+func TestB6_WithLowCardinality(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	ctx.Cardinality = &cardinality.CardinalityData{
+		HeadSeriesCount: 500_000,
+	}
+	rule := &rules.HighCardinality{}
+	findings := rule.Check(ctx)
+
+	if len(findings) > 0 {
+		t.Errorf("B6 should not fire with 500K series, got %d findings", len(findings))
+	}
+}
+
+func TestB6_WithoutCardinality(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	rule := &rules.HighCardinality{}
+	findings := rule.Check(ctx)
+
+	if len(findings) > 0 {
+		t.Errorf("B6 should not fire without cardinality data, got %d findings", len(findings))
+	}
+}
+
+// --- Q11: rate() on gauge metric ---
+
+func TestQ11_SlowDashboard(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	rule := &rules.RateOnGauge{}
+	findings := rule.Check(ctx)
+
+	if len(findings) == 0 {
+		t.Fatal("Q11 should detect rate() on gauge in slow dashboard (panel 13: rate(go_goroutines[5m]))")
+	}
+	t.Logf("Q11 found %d findings:", len(findings))
+	for _, f := range findings {
+		t.Logf("  [%s] panel %v: %s — %s", f.Severity, f.PanelIDs, f.Title, f.Why)
+	}
+
+	// Panel 13 should be flagged (Goroutine Count: rate(go_goroutines[5m]))
+	found := false
+	for _, f := range findings {
+		for _, pid := range f.PanelIDs {
+			if pid == 13 {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("Q11 should flag panel 13 (rate(go_goroutines[5m]))")
+	}
+}
+
+func TestQ11_FixedDashboard(t *testing.T) {
+	ctx := buildContext(t, "fixed-by-advisor.json")
+	rule := &rules.RateOnGauge{}
+	findings := rule.Check(ctx)
+
+	if len(findings) > 0 {
+		t.Errorf("Q11 should find no issues in fixed dashboard, got %d:", len(findings))
+		for _, f := range findings {
+			t.Logf("  %s", f.Why)
+		}
+	}
+}
+
+// --- Q12: Impossible vector matching ---
+
+func TestQ12_SlowDashboard(t *testing.T) {
+	ctx := buildContext(t, "slow-by-design.json")
+	rule := &rules.ImpossibleVectorMatching{}
+	findings := rule.Check(ctx)
+
+	if len(findings) == 0 {
+		t.Fatal("Q12 should detect binary operation without on()/ignoring() in slow dashboard")
+	}
+	t.Logf("Q12 found %d findings:", len(findings))
+	for _, f := range findings {
+		t.Logf("  [%s] panel %v: %s — %s", f.Severity, f.PanelIDs, f.Title, f.Why)
+	}
+}
+
+func TestQ12_FixedDashboard(t *testing.T) {
+	ctx := buildContext(t, "fixed-by-advisor.json")
+	rule := &rules.ImpossibleVectorMatching{}
+	findings := rule.Check(ctx)
+
+	if len(findings) > 0 {
+		t.Errorf("Q12 should find no issues in fixed dashboard, got %d:", len(findings))
 		for _, f := range findings {
 			t.Logf("  %s", f.Why)
 		}

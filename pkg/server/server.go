@@ -7,17 +7,33 @@ import (
 	"net/http"
 
 	"github.com/dashboard-advisor/pkg/analyzer"
+	"github.com/dashboard-advisor/pkg/cardinality"
 	"github.com/dashboard-advisor/pkg/fixer"
 	"github.com/dashboard-advisor/web"
 )
 
 // Handler returns an http.Handler serving the web UI and API endpoints.
-func Handler() http.Handler {
+// cardClient and promURL are optional — pass nil/"" for static-only analysis.
+func Handler(cardClient *cardinality.Client, promURL string) http.Handler {
+	s := &srv{cardClient: cardClient, promURL: promURL}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/analyze", handleAnalyze)
-	mux.HandleFunc("POST /api/fix", handleFix)
+	mux.HandleFunc("POST /api/analyze", s.handleAnalyze)
+	mux.HandleFunc("POST /api/fix", s.handleFix)
 	mux.HandleFunc("GET /", handleIndex)
 	return mux
+}
+
+type srv struct {
+	cardClient *cardinality.Client
+	promURL    string
+}
+
+func (s *srv) buildEngine() *analyzer.Engine {
+	engine := analyzer.DefaultEngine()
+	if s.cardClient != nil {
+		engine.WithCardinality(s.cardClient, s.promURL)
+	}
+	return engine
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +46,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-func handleAnalyze(w http.ResponseWriter, r *http.Request) {
+func (s *srv) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusBadRequest)
@@ -43,7 +59,7 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	engine := analyzer.DefaultEngine()
+	engine := s.buildEngine()
 	report, err := engine.AnalyzeBytes(body)
 	if err != nil {
 		log.Printf("analyze error: %v", err)
@@ -57,7 +73,7 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(report)
 }
 
-func handleFix(w http.ResponseWriter, r *http.Request) {
+func (s *srv) handleFix(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
 	if err != nil {
 		http.Error(w, "error reading request body", http.StatusBadRequest)
@@ -70,7 +86,7 @@ func handleFix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	engine := analyzer.DefaultEngine()
+	engine := s.buildEngine()
 	report, err := engine.AnalyzeBytes(body)
 	if err != nil {
 		log.Printf("fix analysis error: %v", err)

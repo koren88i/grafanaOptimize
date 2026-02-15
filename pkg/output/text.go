@@ -18,6 +18,11 @@ func (f *TextFormatter) Format(w io.Writer, report *rules.Report) error {
 	fmt.Fprintf(w, "Score:     %s\n", scoreBar(report.Score))
 	fmt.Fprintf(w, "Panels:    %d  |  Targets: %d  |  Parse errors: %d\n",
 		report.Metadata.TotalPanels, report.Metadata.TotalTargets, report.Metadata.ParseErrors)
+	if report.Metadata.CardinalityAvailable {
+		fmt.Fprintln(w, "Cardinality: enriched (live TSDB data)")
+	} else {
+		fmt.Fprintln(w, "Cardinality: heuristic (use --prometheus-url for live data)")
+	}
 	fmt.Fprintln(w, strings.Repeat("─", 70))
 
 	if len(report.Findings) == 0 {
@@ -48,6 +53,21 @@ func (f *TextFormatter) Format(w io.Writer, report *rules.Report) error {
 		fmt.Fprintf(w, "       Impact: %s\n", first.Impact)
 		if first.AutoFixable {
 			fmt.Fprintf(w, "       Auto-fixable: yes (use --fix)\n")
+		}
+		fmt.Fprintln(w)
+	}
+
+	// Top expensive queries section
+	if len(report.Metadata.QueryCosts) > 0 {
+		fmt.Fprintln(w, strings.Repeat("─", 70))
+		fmt.Fprintln(w, "Top expensive queries (by estimated cost):")
+		topQueries := topExpensiveQueries(report.Metadata.QueryCosts, 5)
+		for i, q := range topQueries {
+			expr := q.expr
+			if len(expr) > 60 {
+				expr = expr[:57] + "..."
+			}
+			fmt.Fprintf(w, "  %d. [cost: %.0f] %s\n", i+1, q.cost, expr)
 		}
 		fmt.Fprintln(w)
 	}
@@ -124,4 +144,23 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+type queryCost struct {
+	expr string
+	cost float64
+}
+
+func topExpensiveQueries(costs map[string]float64, n int) []queryCost {
+	items := make([]queryCost, 0, len(costs))
+	for expr, cost := range costs {
+		items = append(items, queryCost{expr: expr, cost: cost})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].cost > items[j].cost
+	})
+	if len(items) > n {
+		items = items[:n]
+	}
+	return items
 }

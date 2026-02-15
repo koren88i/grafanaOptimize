@@ -31,18 +31,30 @@ func (r *LateAggregation) Check(ctx *AnalysisContext) []Finding {
 				// Walk the inner expression looking for unfiltered VectorSelectors
 				if hasUnfilteredSelector(agg.Expr) {
 					metricName := extractMetricFromInner(agg.Expr)
+					confidence := 0.75
+					impact := "Pushes filtering earlier, reducing series fetched by orders of magnitude"
+					why := fmt.Sprintf("An aggregation wraps the metric %q which has no label filters. Prometheus must fetch all series first, then aggregate — wasting memory and I/O.", metricName)
+
+					if ctx.Cardinality != nil {
+						if seriesCount := ctx.Cardinality.EstimatedSeries(metricName, 0); seriesCount > 0 {
+							confidence = 0.9
+							why = fmt.Sprintf("An aggregation wraps the metric %q (%d active series) with no label filters. Prometheus fetches all %d series first, then aggregates — wasting memory and I/O.", metricName, seriesCount, seriesCount)
+							impact = fmt.Sprintf("Adding filters before aggregation could avoid scanning %d series unnecessarily", seriesCount)
+						}
+					}
+
 					findings = append(findings, Finding{
 						RuleID:      "Q5",
 						Severity:    Medium,
 						PanelIDs:    []int{panel.ID},
 						PanelTitles: []string{panel.Title},
 						Title:       "Late aggregation over unfiltered selector",
-						Why:         fmt.Sprintf("An aggregation wraps the metric %q which has no label filters. Prometheus must fetch all series first, then aggregate — wasting memory and I/O.", metricName),
+						Why:         why,
 						Fix:         fmt.Sprintf("Add label matchers to %s before aggregating, e.g. %s{namespace=\"...\"}.", metricName, metricName),
-						Impact:      "Pushes filtering earlier, reducing series fetched by orders of magnitude",
+						Impact:      impact,
 						Validate:    "Query Inspector → Stats tab → compare 'Series fetched' before/after",
 						AutoFixable: false,
-						Confidence:  0.75,
+						Confidence:  confidence,
 					})
 				}
 				return nil

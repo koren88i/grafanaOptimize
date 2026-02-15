@@ -21,7 +21,7 @@
 
 | Week | Deliverable | Status | Tests |
 |------|------------|--------|-------|
-| 7–8 | TSDB status API integration + CostVisitor + variable explosion detection + Thanos checks (B1–B3) + pint check ports | [ ] | Unit: cardinality-enriched findings have Confidence > 0.8 |
+| 7–8 | TSDB status API integration + CostVisitor + B1–B7 rules + Q11/Q12 pint ports + CLI `--prometheus-url` | [x] | Unit: 96 findings on slow (was 92), cardinality-enriched findings have Confidence > 0.8, 8 new cardinality tests, 11 new rule tests |
 | 9–10 | Grafana App Plugin (`checks.Check` interface) | [ ] | Manual: advisor embedded in Grafana 10/11/12 |
 
 ### Phase 3: Runtime Profiling + Advanced Features (weeks 11–16)
@@ -35,6 +35,45 @@
 ---
 
 ## Completed Work
+
+### Phase 2, Weeks 7–8: Cardinality Enrichment + Backend Rules (2026-02-16)
+
+**New packages:**
+- `pkg/cardinality/` — TSDB Status API client (`/api/v1/status/tsdb`) with 5-minute TTL cache. Returns `CardinalityData` with series counts by metric, label value counts, label pair counts, and head series total. Graceful fallback: returns nil on API failure, rules continue with heuristic defaults.
+- `pkg/analyzer/cost_visitor.go` — CostVisitor walks PromQL AST and estimates query cost. Formula: `Σ(selector_costs) × aggregation_factor × function_factor`. Used for ranking queries by expense in text output ("Top expensive queries" section).
+
+**New rules (9 total):**
+- **B1** (Critical): No Thanos query-frontend detected — static inference from datasource UIDs
+- **B2** (High): Query-frontend cache misconfigured — requires live endpoint (stub)
+- **B3** (Medium): No slow query logging — requires live endpoint (stub)
+- **B4** (High): Store gateway without external cache — requires live endpoint (stub)
+- **B5** (Medium): Thanos deduplication overhead — static inference from Thanos datasources
+- **B6** (High): High cardinality TSDB (>1M head series) — requires live cardinality data
+- **B7** (Medium): Prometheus query log not enabled — requires live endpoint (stub)
+- **Q11** (Medium): rate()/irate() on gauge metric — heuristic detection via naming conventions
+- **Q12** (Medium): Binary operation without explicit on()/ignoring() label matching
+
+**Architecture changes:**
+- `AnalysisContext` extended with `Cardinality *CardinalityData` and `PrometheusURL string`
+- `ReportMetadata` extended with `CardinalityAvailable bool` and `QueryCosts map[string]float64`
+- `Engine` gained `WithCardinality(client, url)` setter for optional live enrichment
+- Q1, Q4, Q5 enriched with cardinality data when available (higher Confidence, measured series counts in Why/Impact)
+- `server.Handler()` signature updated to accept optional cardinality client
+
+**CLI changes:**
+- `--prometheus-url` flag for live cardinality enrichment and B-series checks
+- `--timeout` flag for Prometheus API request timeout (default 10s)
+
+**Output changes:**
+- Text formatter shows cardinality status line ("enriched" vs "heuristic")
+- Text formatter shows "Top expensive queries" ranked by estimated cost
+- JSON output includes `cardinalityAvailable` and `queryCosts` in metadata
+
+**Demo stack changes:**
+- Added `thanos-query-frontend` service under `profiles: ["optimized"]`
+- Run `docker-compose --profile optimized up` to include query-frontend
+
+**Test results:** 96 findings on slow dashboard (was 92), score 12/100. Fixed dashboard: 0 findings, score 100/100. All 70+ tests pass.
 
 ### Web UI readability improvements (2026-02-15)
 

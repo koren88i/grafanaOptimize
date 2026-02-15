@@ -46,6 +46,20 @@ services:
     depends_on:
       - thanos-sidecar
 
+  thanos-query-frontend:
+    image: quay.io/thanos/thanos:v0.34.1
+    command:
+      - query-frontend
+      - "--http-address=0.0.0.0:9090"
+      - "--query-frontend.downstream-url=http://thanos-querier:9090"
+      - "--query-frontend.log-queries-longer-than=5s"
+    ports:
+      - "10903:9090"
+    profiles:
+      - optimized
+    depends_on:
+      - thanos-querier
+
   grafana:
     image: grafana/grafana:10.4.2
     environment:

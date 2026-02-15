@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/dashboard-advisor/pkg/cardinality"
 	"github.com/dashboard-advisor/pkg/extractor"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -76,10 +77,12 @@ type Report struct {
 
 // ReportMetadata holds supplementary info about the analysis run.
 type ReportMetadata struct {
-	TotalPanels      int
-	TotalTargets     int
-	ParseErrors      int
-	AnalyzerVersion  string
+	TotalPanels          int
+	TotalTargets         int
+	ParseErrors          int
+	AnalyzerVersion      string
+	CardinalityAvailable bool               `json:"cardinalityAvailable"` // true if TSDB status was fetched
+	QueryCosts           map[string]float64  `json:"queryCosts,omitempty"` // expr → estimated cost
 }
 
 // Rule is the interface every detection rule implements.
@@ -95,6 +98,8 @@ type AnalysisContext struct {
 	Panels      []extractor.PanelModel            // all panels (including nested)
 	Variables   []extractor.VariableModel          // template variables
 	ParsedExprs map[string]parser.Expr             // raw expr → parsed AST
+	Cardinality *cardinality.CardinalityData       // nil when no Prometheus URL provided (Phase 2)
+	PrometheusURL string                           // empty when not configured; used by B-series rules
 }
 
 // ComputeScore calculates the composite health score from findings using

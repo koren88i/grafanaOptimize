@@ -2,7 +2,9 @@ package analyzer
 
 import (
 	"fmt"
+	"log"
 
+	"github.com/dashboard-advisor/pkg/cardinality"
 	"github.com/dashboard-advisor/pkg/extractor"
 	"github.com/dashboard-advisor/pkg/rules"
 )
@@ -10,7 +12,9 @@ import (
 // Engine orchestrates the full analysis pipeline:
 // load dashboard → extract → parse → run rules → score → report.
 type Engine struct {
-	rules []rules.Rule
+	rules             []rules.Rule
+	cardinalityClient *cardinality.Client // nil when --prometheus-url not provided
+	prometheusURL     string              // passed through to AnalysisContext for B-rules
 }
 
 // NewEngine creates an Engine with no rules registered.
@@ -23,31 +27,49 @@ func (e *Engine) RegisterRule(r rules.Rule) {
 	e.rules = append(e.rules, r)
 }
 
-// DefaultEngine returns an Engine with all built-in Phase 1 rules registered.
+// WithCardinality configures live cardinality enrichment via a Prometheus TSDB
+// status API client. When set, the engine fetches cardinality data and passes
+// it to rules through AnalysisContext.Cardinality.
+func (e *Engine) WithCardinality(c *cardinality.Client, prometheusURL string) {
+	e.cardinalityClient = c
+	e.prometheusURL = prometheusURL
+}
+
+// DefaultEngine returns an Engine with all built-in rules registered.
 func DefaultEngine() *Engine {
 	e := NewEngine()
 	// Q-series: PromQL rules
-	e.RegisterRule(&rules.MissingFilters{})       // Q1
-	e.RegisterRule(&rules.UnboundedRegex{})        // Q2
-	e.RegisterRule(&rules.RegexEquality{})         // Q3
-	e.RegisterRule(&rules.HighCardinalityGrouping{}) // Q4
-	e.RegisterRule(&rules.LateAggregation{})       // Q5
-	e.RegisterRule(&rules.LongRateRange{})         // Q6
-	e.RegisterRule(&rules.HardcodedInterval{})     // Q7
-	e.RegisterRule(&rules.SubqueryAbuse{})         // Q8
-	e.RegisterRule(&rules.DuplicateExpressions{})  // Q9
-	e.RegisterRule(&rules.IncorrectAggregation{})  // Q10
+	e.RegisterRule(&rules.MissingFilters{})            // Q1
+	e.RegisterRule(&rules.UnboundedRegex{})             // Q2
+	e.RegisterRule(&rules.RegexEquality{})              // Q3
+	e.RegisterRule(&rules.HighCardinalityGrouping{})    // Q4
+	e.RegisterRule(&rules.LateAggregation{})            // Q5
+	e.RegisterRule(&rules.LongRateRange{})              // Q6
+	e.RegisterRule(&rules.HardcodedInterval{})          // Q7
+	e.RegisterRule(&rules.SubqueryAbuse{})              // Q8
+	e.RegisterRule(&rules.DuplicateExpressions{})       // Q9
+	e.RegisterRule(&rules.IncorrectAggregation{})       // Q10
+	e.RegisterRule(&rules.RateOnGauge{})                // Q11
+	e.RegisterRule(&rules.ImpossibleVectorMatching{})   // Q12
 	// D-series: Dashboard design rules
-	e.RegisterRule(&rules.TooManyPanels{})         // D1
-	e.RegisterRule(&rules.RepeatWithAll{})         // D2
-	e.RegisterRule(&rules.VariableExplosion{})     // D3
-	e.RegisterRule(&rules.ExpensiveVariableQuery{}) // D4
-	e.RegisterRule(&rules.RefreshTooFrequent{})    // D5
-	e.RegisterRule(&rules.RangeTooWide{})          // D6
-	e.RegisterRule(&rules.MissingMaxDataPoints{})  // D7
-	e.RegisterRule(&rules.DuplicateQueries{})      // D8
-	e.RegisterRule(&rules.DatasourceMixing{})      // D9
-	e.RegisterRule(&rules.NoCollapsedRows{})       // D10
+	e.RegisterRule(&rules.TooManyPanels{})              // D1
+	e.RegisterRule(&rules.RepeatWithAll{})              // D2
+	e.RegisterRule(&rules.VariableExplosion{})          // D3
+	e.RegisterRule(&rules.ExpensiveVariableQuery{})     // D4
+	e.RegisterRule(&rules.RefreshTooFrequent{})         // D5
+	e.RegisterRule(&rules.RangeTooWide{})               // D6
+	e.RegisterRule(&rules.MissingMaxDataPoints{})       // D7
+	e.RegisterRule(&rules.DuplicateQueries{})           // D8
+	e.RegisterRule(&rules.DatasourceMixing{})           // D9
+	e.RegisterRule(&rules.NoCollapsedRows{})            // D10
+	// B-series: Backend/infrastructure rules
+	e.RegisterRule(&rules.NoQueryFrontend{})            // B1
+	e.RegisterRule(&rules.CacheMisconfigured{})         // B2
+	e.RegisterRule(&rules.NoSlowQueryLog{})             // B3
+	e.RegisterRule(&rules.StoreGatewayNoCache{})        // B4
+	e.RegisterRule(&rules.DeduplicationOverhead{})      // B5
+	e.RegisterRule(&rules.HighCardinality{})            // B6
+	e.RegisterRule(&rules.QueryLogNotEnabled{})         // B7
 	return e
 }
 
@@ -75,11 +97,23 @@ func (e *Engine) AnalyzeDashboard(dash *extractor.DashboardModel) *rules.Report 
 	allExprs := extractor.AllTargetExprs(dash)
 	parsed, parseErrors := ParseAllExprs(allExprs)
 
+	// Optionally fetch cardinality data from Prometheus TSDB status API
+	var cardData *cardinality.CardinalityData
+	if e.cardinalityClient != nil {
+		var err error
+		cardData, err = e.cardinalityClient.Fetch()
+		if err != nil {
+			log.Printf("WARN: cardinality enrichment unavailable: %v", err)
+		}
+	}
+
 	ctx := &rules.AnalysisContext{
-		Dashboard:   dash,
-		Panels:      allPanels,
-		Variables:   dash.Templating.List,
-		ParsedExprs: parsed,
+		Dashboard:     dash,
+		Panels:        allPanels,
+		Variables:     dash.Templating.List,
+		ParsedExprs:   parsed,
+		Cardinality:   cardData,
+		PrometheusURL: e.prometheusURL,
 	}
 
 	var findings []rules.Finding
@@ -96,6 +130,12 @@ func (e *Engine) AnalyzeDashboard(dash *extractor.DashboardModel) *rules.Report 
 		totalTargets += len(p.Targets)
 	}
 
+	// Compute query costs for ranking panels by expense
+	queryCosts := make(map[string]float64, len(parsed))
+	for rawExpr, expr := range parsed {
+		queryCosts[rawExpr] = EstimateQueryCost(expr, cardData, 15.0)
+	}
+
 	return &rules.Report{
 		DashboardUID:   dash.UID,
 		DashboardTitle: dash.Title,
@@ -103,10 +143,12 @@ func (e *Engine) AnalyzeDashboard(dash *extractor.DashboardModel) *rules.Report 
 		Findings:       findings,
 		PanelScores:    panelScores,
 		Metadata: rules.ReportMetadata{
-			TotalPanels:     len(extractor.AllPanels(dash)),
-			TotalTargets:    totalTargets,
-			ParseErrors:     len(parseErrors),
-			AnalyzerVersion: "0.1.0",
+			TotalPanels:          len(extractor.AllPanels(dash)),
+			TotalTargets:         totalTargets,
+			ParseErrors:          len(parseErrors),
+			AnalyzerVersion:      "0.2.0",
+			CardinalityAvailable: cardData != nil,
+			QueryCosts:           queryCosts,
 		},
 	}
 }

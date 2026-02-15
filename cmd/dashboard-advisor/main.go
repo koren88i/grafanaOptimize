@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/dashboard-advisor/pkg/analyzer"
+	"github.com/dashboard-advisor/pkg/cardinality"
 	"github.com/dashboard-advisor/pkg/fixer"
 	"github.com/dashboard-advisor/pkg/output"
 	"github.com/dashboard-advisor/pkg/server"
@@ -20,6 +22,8 @@ func main() {
 	fixOutput := flag.String("output", "", "Write patched JSON to this file instead of stdout (requires --fix)")
 	serve := flag.Bool("serve", false, "Start web UI server")
 	addr := flag.String("addr", ":8080", "Server listen address (with --serve)")
+	promURL := flag.String("prometheus-url", "", "Prometheus/Thanos URL for live cardinality enrichment and B-series checks")
+	promTimeout := flag.Duration("timeout", 10*time.Second, "Timeout for Prometheus API requests (with --prometheus-url)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: dashboard-advisor [flags] <dashboard.json>\n\n")
 		fmt.Fprintf(os.Stderr, "Analyze a Grafana dashboard JSON file for performance anti-patterns.\n\n")
@@ -31,8 +35,15 @@ func main() {
 	}
 	flag.Parse()
 
+	// Build cardinality client if Prometheus URL is provided
+	var cardClient *cardinality.Client
+	if *promURL != "" {
+		cardClient = cardinality.NewClient(*promURL, *promTimeout)
+		log.Printf("Cardinality enrichment enabled: %s (timeout: %s)", *promURL, *promTimeout)
+	}
+
 	if *serve {
-		runServe(*addr)
+		runServe(*addr, cardClient, *promURL)
 		return
 	}
 
@@ -44,14 +55,22 @@ func main() {
 	path := flag.Arg(0)
 
 	if *fix {
-		runFix(path, *fixOutput)
+		runFix(path, *fixOutput, cardClient, *promURL)
 	} else {
-		runLint(path, *format, *failOn)
+		runLint(path, *format, *failOn, cardClient, *promURL)
 	}
 }
 
-func runServe(addr string) {
-	handler := server.Handler()
+func buildEngine(cardClient *cardinality.Client, promURL string) *analyzer.Engine {
+	engine := analyzer.DefaultEngine()
+	if cardClient != nil {
+		engine.WithCardinality(cardClient, promURL)
+	}
+	return engine
+}
+
+func runServe(addr string, cardClient *cardinality.Client, promURL string) {
+	handler := server.Handler(cardClient, promURL)
 	log.Printf("Dashboard Advisor web UI: http://localhost%s\n", addr)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -59,8 +78,8 @@ func runServe(addr string) {
 	}
 }
 
-func runLint(path, format, failOn string) {
-	engine := analyzer.DefaultEngine()
+func runLint(path, format, failOn string, cardClient *cardinality.Client, promURL string) {
+	engine := buildEngine(cardClient, promURL)
 	report, err := engine.AnalyzeFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -97,7 +116,7 @@ func runLint(path, format, failOn string) {
 	}
 }
 
-func runFix(path, outputPath string) {
+func runFix(path, outputPath string, cardClient *cardinality.Client, promURL string) {
 	rawJSON, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
@@ -105,7 +124,7 @@ func runFix(path, outputPath string) {
 	}
 
 	// Analyze to get findings
-	engine := analyzer.DefaultEngine()
+	engine := buildEngine(cardClient, promURL)
 	report, err := engine.AnalyzeFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error analyzing: %v\n", err)

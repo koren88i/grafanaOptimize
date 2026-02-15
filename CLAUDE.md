@@ -81,11 +81,16 @@ dashboard-advisor/
 │   │   ├── promql_analyzer.go   # PromQL AST checks (Q1-Q14)
 │   │   ├── cost_visitor.go      # CostVisitor for query cost estimation
 │   │   └── scoring.go           # composite health score calculation
+│   ├── cardinality/             # TSDB status API client (Phase 2)
+│   │   ├── types.go             # CardinalityData struct + helper methods
+│   │   ├── client.go            # HTTP client with 5-min TTL cache
+│   │   └── client_test.go       # tests with httptest mock server
 │   ├── rules/                   # individual detection rules
 │   │   ├── rule.go              # Rule interface + Finding struct
 │   │   ├── q1_missing_filters.go
 │   │   ├── d1_too_many_panels.go
-│   │   └── ...                  # one file per rule
+│   │   ├── b1_no_query_frontend.go
+│   │   └── ...                  # one file per rule (Q1-Q12, D1-D10, B1-B7)
 │   ├── extractor/               # dashboard JSON → panels/targets/variables
 │   ├── fixer/                   # JSON patch generator (--fix mode)
 │   └── output/                  # formatters: JSON, text, SARIF
@@ -128,14 +133,14 @@ Rules are identified by stable IDs. Each rule produces a `Finding` with: rule ID
 - D9: Datasource mixing (>2 distinct datasources) — Low-Medium
 - D10: No collapsed rows — Medium
 
-### Backend rules (B-series) — Phase 2+
-- B1: No Thanos query-frontend — Critical
-- B2: Query-frontend cache misconfigured — High
-- B3: No slow query logging enabled — Medium
-- B4: Store gateway without external cache — High
-- B5: Thanos deduplication overhead — Medium-High
-- B6: High cardinality (>1M head series) — High
-- B7: Prometheus query log not enabled — Medium
+### Backend rules (B-series) — implemented in Phase 2 weeks 7-8
+- B1: No Thanos query-frontend — Critical (static inference from datasource UIDs)
+- B2: Query-frontend cache misconfigured — High (stub, requires live endpoint)
+- B3: No slow query logging enabled — Medium (stub, requires live endpoint)
+- B4: Store gateway without external cache — High (stub, requires live endpoint)
+- B5: Thanos deduplication overhead — Medium (static inference when Thanos datasource detected)
+- B6: High cardinality (>1M head series) — High (requires `--prometheus-url` for live cardinality data)
+- B7: Prometheus query log not enabled — Medium (stub, requires live endpoint)
 
 ## Scoring
 
@@ -158,8 +163,10 @@ The `slow-by-design.json` dashboard is the primary test fixture. Every rule must
 
 ## Phase overview
 
-- **Phase 1 (weeks 1–6)**: Demo stack → analysis engine → CLI → web UI. Static analysis only (Layer 1).
+- **Phase 1 (weeks 1–6)**: Demo stack → analysis engine → CLI → web UI. Static analysis only (Layer 1). **COMPLETE** — 20 rules (Q1-Q10, D1-D10), 92 findings on slow dashboard, score 12.
 - **Phase 2 (weeks 7–10)**: Live cardinality enrichment via TSDB status API → CostVisitor → Thanos checks → Grafana App Plugin.
+  - **Weeks 7–8: COMPLETE** — TSDB client (`pkg/cardinality/`), CostVisitor, B1-B7 rules, Q11-Q12 ported from pint, CLI flags (`--prometheus-url`, `--timeout`). 96 findings on slow dashboard, score 11.
+  - Weeks 9–10: Pending — Grafana App Plugin.
 - **Phase 3 (weeks 11–16)**: Runtime telemetry correlation → recording-rule generation → trend tracking.
 
 ## Key conventions
