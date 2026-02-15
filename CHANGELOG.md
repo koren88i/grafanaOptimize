@@ -36,6 +36,22 @@
 
 ## Completed Work
 
+### Web UI readability improvements (2026-02-15)
+
+**Problem:** Users saw rule IDs like "Q1", "D2" in the web UI but had no context for what they meant or which panels were affected. All detail was hidden behind expanding each card.
+
+**Changes (all in `web/index.html`):**
+- Colored left borders on finding cards by severity (red=critical, yellow=high, blue=medium, gray=low) for at-a-glance scanning
+- Panel names shown in collapsed header (up to 2, with "+N more" overflow) — no click needed to see which panels are affected
+- "Why" one-liner preview visible in collapsed view, truncated with ellipsis
+- Rule ID styled as a badge with tooltip ("PromQL query rule" / "Dashboard design rule")
+- Finding title weight increased to 600 for better visual hierarchy
+- Header layout changed from single-line to multi-line (title → panels → why)
+
+**Files changed:** `web/index.html` (CSS + `renderFindings()` JS function)
+
+---
+
 ### Phase 1, Weeks 1 + 5–6: Docker demo stack + Web UI (2026-02-15)
 
 **Docker Compose demo stack (Week 1 — previously deferred):**

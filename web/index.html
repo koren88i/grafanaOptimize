@@ -77,8 +77,12 @@ textarea::placeholder{color:var(--muted)}
 
 /* Finding cards */
 .finding{background:var(--surface);border:1px solid var(--border);border-radius:6px;
-  margin-bottom:.5rem;overflow:hidden}
-.finding-header{display:flex;align-items:center;gap:.5rem;padding:.625rem .75rem;
+  margin-bottom:.5rem;overflow:hidden;border-left:3px solid var(--border)}
+.finding.sev-critical{border-left-color:var(--danger)}
+.finding.sev-high{border-left-color:var(--warn)}
+.finding.sev-medium{border-left-color:var(--accent)}
+.finding.sev-low{border-left-color:var(--muted)}
+.finding-header{display:flex;align-items:flex-start;gap:.5rem;padding:.625rem .75rem;
   cursor:pointer;user-select:none}
 .finding-header:hover{background:var(--surface2)}
 .badge{font-size:.7rem;font-weight:600;padding:.125rem .5rem;border-radius:10px;
@@ -87,12 +91,20 @@ textarea::placeholder{color:var(--muted)}
 .badge-high{background:var(--high-bg);color:var(--warn)}
 .badge-medium{background:var(--medium-bg);color:var(--accent)}
 .badge-low{background:var(--low-bg);color:var(--muted)}
-.rule-id{color:var(--muted);font-size:.8rem;font-family:monospace;min-width:2rem}
-.finding-title{font-size:.875rem;font-weight:500;flex:1}
+.rule-id{font-size:.7rem;font-family:monospace;min-width:2.25rem;text-align:center;
+  background:var(--surface2);color:var(--muted);padding:.125rem .375rem;border-radius:4px;
+  font-weight:600;flex-shrink:0;margin-top:.0625rem}
+.finding-center{flex:1;min-width:0}
+.finding-title{font-size:.875rem;font-weight:600}
+.finding-panels-preview{font-size:.75rem;color:var(--accent);margin-top:.1875rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.finding-why-preview{font-size:.75rem;color:var(--muted);margin-top:.125rem;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.finding-tags{display:flex;align-items:center;gap:.375rem;flex-shrink:0;margin-top:.0625rem}
 .autofix-badge{font-size:.65rem;color:var(--success);border:1px solid var(--success);
   padding:.0625rem .375rem;border-radius:8px;white-space:nowrap}
 .occurrence-count{color:var(--muted);font-size:.75rem;white-space:nowrap}
-.chevron{color:var(--muted);font-size:.75rem;transition:transform .15s}
+.chevron{color:var(--muted);font-size:.75rem;transition:transform .15s;margin-top:.0625rem}
 .finding.open .chevron{transform:rotate(90deg)}
 .finding-body{display:none;padding:.5rem .75rem .75rem;border-top:1px solid var(--border);
   font-size:.825rem;color:var(--muted)}
@@ -332,18 +344,36 @@ function renderFindings(findings) {
       });
 
       var card = document.createElement('div');
-      card.className = 'finding';
+      card.className = 'finding sev-' + sevClass;
 
       var hdr = document.createElement('div');
       hdr.className = 'finding-header';
       hdr.onclick = function() { card.classList.toggle('open'); };
 
       var occText = totalOccurrences > 1 ? totalOccurrences + 'x' : '';
+      var ruleTooltip = ruleID.charAt(0) === 'Q' ? 'PromQL query rule' : ruleID.charAt(0) === 'D' ? 'Dashboard design rule' : 'Backend rule';
 
-      hdr.innerHTML = '<span class="rule-id">' + esc(ruleID) + '</span>'
-        + '<span class="finding-title">' + esc(first.Title) + '</span>'
-        + (first.AutoFixable ? '<span class="autofix-badge">auto-fixable</span>' : '')
-        + (occText ? '<span class="occurrence-count">' + occText + '</span>' : '')
+      // Panel names preview (collapsed header)
+      var panelPreview = '';
+      if (allPanels.length > 0) {
+        var previewPanels = allPanels.slice(0, 2);
+        var extraCount = allPanels.length > 2 ? ' +' + (allPanels.length - 2) + ' more' : '';
+        panelPreview = '<div class="finding-panels-preview">' + esc(previewPanels.join(', ')) + extraCount + '</div>';
+      }
+
+      // Why preview (collapsed header)
+      var whyPreview = first.Why ? '<div class="finding-why-preview">' + esc(first.Why) + '</div>' : '';
+
+      hdr.innerHTML = '<span class="rule-id" title="' + esc(ruleTooltip) + '">' + esc(ruleID) + '</span>'
+        + '<div class="finding-center">'
+        +   '<div class="finding-title">' + esc(first.Title) + '</div>'
+        +   panelPreview
+        +   whyPreview
+        + '</div>'
+        + '<div class="finding-tags">'
+        +   (first.AutoFixable ? '<span class="autofix-badge">auto-fix</span>' : '')
+        +   (occText ? '<span class="occurrence-count">' + occText + '</span>' : '')
+        + '</div>'
         + '<span class="chevron">&#9654;</span>';
       card.appendChild(hdr);
 
@@ -354,7 +384,7 @@ function renderFindings(findings) {
       if (allPanels.length > 0) {
         var shown = allPanels.slice(0, 5);
         var extra = allPanels.length > 5 ? ' (+' + (allPanels.length - 5) + ' more)' : '';
-        html += '<div class="field panels-list">' + esc(shown.join(', ')) + extra + '</div>';
+        html += '<div class="field panels-list">Panels: ' + esc(shown.join(', ')) + extra + '</div>';
       }
       html += '<div class="field"><strong>Why:</strong> ' + esc(first.Why) + '</div>';
       html += '<div class="field"><strong>Fix:</strong> ' + esc(first.Fix) + '</div>';
