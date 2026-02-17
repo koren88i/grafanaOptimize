@@ -116,6 +116,31 @@ textarea::placeholder{color:var(--muted)}
 /* Score gauge SVG */
 .gauge-text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 
+/* Cardinality badge */
+.cardinality-badge{font-size:.7rem;padding:.125rem .5rem;border-radius:10px;font-weight:600}
+.cardinality-badge.enriched{background:rgba(63,185,80,.15);color:var(--success)}
+.cardinality-badge.heuristic{background:var(--low-bg);color:var(--muted)}
+
+/* Confidence indicator */
+.confidence{font-size:.65rem;color:var(--muted);white-space:nowrap}
+.confidence-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px;vertical-align:middle}
+.confidence-dot.high{background:var(--success)}
+.confidence-dot.medium{background:var(--warn)}
+.confidence-dot.low{background:var(--muted)}
+
+/* Top expensive queries */
+.expensive-queries{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:1rem 1.25rem;margin-bottom:1.25rem}
+.expensive-queries h3{font-size:.9rem;font-weight:600;margin-bottom:.625rem}
+.eq-row{display:flex;align-items:baseline;gap:.75rem;padding:.25rem 0;
+  border-bottom:1px solid var(--border);font-size:.8rem}
+.eq-row:last-child{border-bottom:none}
+.eq-rank{color:var(--muted);min-width:1.25rem;text-align:right;flex-shrink:0}
+.eq-cost{color:var(--warn);font-weight:600;font-family:monospace;min-width:5rem;
+  text-align:right;flex-shrink:0}
+.eq-expr{color:var(--text);font-family:monospace;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;flex:1;min-width:0}
+
 /* Responsive */
 @media(max-width:600px){
   .score-card{flex-direction:column;text-align:center}
@@ -158,12 +183,17 @@ textarea::placeholder{color:var(--muted)}
           <div class="meta-item">Targets: <span class="meta-val" id="m-targets"></span></div>
           <div class="meta-item">Issues: <span class="meta-val" id="m-issues"></span></div>
           <div class="meta-item">Parse errors: <span class="meta-val" id="m-errors"></span></div>
+          <span class="cardinality-badge" id="m-cardinality"></span>
         </div>
       </div>
     </div>
     <div class="result-actions">
       <button class="btn btn-primary" id="fix-btn" onclick="applyFixes()">Apply Auto-Fixes &amp; Download</button>
       <button class="btn" onclick="reset()">Analyze Another</button>
+    </div>
+    <div class="expensive-queries" id="expensive-queries" style="display:none">
+      <h3>Top Expensive Queries (by estimated cost)</h3>
+      <div id="eq-list"></div>
     </div>
     <div id="findings-list"></div>
   </section>
@@ -257,6 +287,19 @@ function renderResults(report) {
   document.getElementById('m-errors').textContent = report.Metadata.ParseErrors;
 
   renderScoreGauge(report.Score);
+
+  // Cardinality badge
+  var cardBadge = document.getElementById('m-cardinality');
+  if (report.Metadata.cardinalityAvailable) {
+    cardBadge.textContent = 'enriched (live TSDB)';
+    cardBadge.className = 'cardinality-badge enriched';
+  } else {
+    cardBadge.textContent = 'heuristic';
+    cardBadge.className = 'cardinality-badge heuristic';
+  }
+
+  // Top expensive queries
+  renderExpensiveQueries(report.Metadata.queryCosts);
 
   var hasAutoFixable = report.Findings && report.Findings.some(function(f){ return f.AutoFixable; });
   document.getElementById('fix-btn').style.display = hasAutoFixable ? '' : 'none';
@@ -372,6 +415,7 @@ function renderFindings(findings) {
         + '</div>'
         + '<div class="finding-tags">'
         +   (first.AutoFixable ? '<span class="autofix-badge">auto-fix</span>' : '')
+        +   confidenceHtml(first.Confidence)
         +   (occText ? '<span class="occurrence-count">' + occText + '</span>' : '')
         + '</div>'
         + '<span class="chevron">&#9654;</span>';
@@ -438,6 +482,50 @@ async function applyFixes() {
     btn.textContent = 'Apply Auto-Fixes & Download';
     btn.disabled = false;
   }
+}
+
+function renderExpensiveQueries(queryCosts) {
+  var container = document.getElementById('expensive-queries');
+  var list = document.getElementById('eq-list');
+  list.innerHTML = '';
+
+  if (!queryCosts || Object.keys(queryCosts).length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  // Sort by cost descending, take top 5
+  var entries = Object.entries(queryCosts).sort(function(a, b) { return b[1] - a[1]; });
+  var top = entries.slice(0, 5);
+
+  top.forEach(function(entry, i) {
+    var expr = entry[0];
+    var cost = entry[1];
+    var row = document.createElement('div');
+    row.className = 'eq-row';
+    row.innerHTML = '<span class="eq-rank">' + (i + 1) + '.</span>'
+      + '<span class="eq-cost">' + formatCost(cost) + '</span>'
+      + '<span class="eq-expr" title="' + esc(expr) + '">' + esc(expr) + '</span>';
+    list.appendChild(row);
+  });
+
+  container.style.display = '';
+}
+
+function formatCost(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(0) + 'k';
+  return '' + n;
+}
+
+function confidenceHtml(confidence) {
+  if (confidence === undefined || confidence === null) return '';
+  var level = confidence >= 0.8 ? 'high' : confidence >= 0.5 ? 'medium' : 'low';
+  var pct = Math.round(confidence * 100);
+  var tip = level === 'high' ? 'High confidence — detection is based on deterministic checks'
+          : level === 'medium' ? 'Moderate confidence — based on heuristics; live TSDB data would improve accuracy'
+          : 'Low confidence — requires live Prometheus data to confirm (use --prometheus-url)';
+  return '<span class="confidence" title="' + tip + '"><span class="confidence-dot ' + level + '"></span>' + pct + '%</span>';
 }
 
 function esc(s) {

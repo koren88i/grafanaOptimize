@@ -73,6 +73,8 @@
 - Added `thanos-query-frontend` service under `profiles: ["optimized"]`
 - Run `docker-compose --profile optimized up` to include query-frontend
 
+**Known gap:** Web UI (`web/index.html`) was not updated to surface Phase 2 data (`CardinalityAvailable`, `QueryCosts`, `Confidence`). The CLI text formatter and JSON formatter render this data, but the web UI still shows the Phase 1 view. Root cause: the weeks 7-8 spec listed "Text output" updates but omitted the web UI. Fix scheduled for weeks 9-10 as a prerequisite before Grafana plugin work — see ARCHITECTURE.md.
+
 **Test results:** 96 findings on slow dashboard (was 92), score 12/100. Fixed dashboard: 0 findings, score 100/100. All 70+ tests pass.
 
 ### Web UI readability improvements (2026-02-15)

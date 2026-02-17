@@ -186,8 +186,9 @@ The `slow-by-design.json` dashboard is the primary test fixture. Every rule must
 3. **Design for edge cases from the start.** Handle: dashboards with zero panels, panels with no targets, unparseable PromQL, variables with no values, empty repeat configurations.
 4. **Never swallow errors silently.** Log and continue — a swallowed error in the extractor causes a confusing false negative in the rule engine. If `parser.ParseExpr()` fails, log the expression and panel ID, skip it, and continue.
 5. **Apply patterns symmetrically.** When adding a new field to `Finding`, update all output formatters (JSON, text, SARIF). When adding a new rule, add its test case to both demo dashboards.
-6. **Return structured errors.** CLI and API errors should include which dashboard/panel failed and why, not just "analysis failed."
-7. **Decouple detection from presentation.** Rules produce `Finding` structs. Formatters render them. Rules never know about output format. Formatters never know about PromQL.
+6. **Maintain presentation parity.** When adding new data to `Report` or `Finding`, update *all* presentation layers — not just the one you're testing with. The web UI is a first-class output, not a Phase 1 artifact. If a layer is intentionally deferred, document it as a known gap in the CHANGELOG with a phase reference. Checklist for every milestone: text formatter, JSON formatter, web UI, Grafana plugin (when it exists).
+7. **Return structured errors.** CLI and API errors should include which dashboard/panel failed and why, not just "analysis failed."
+8. **Decouple detection from presentation.** Rules produce `Finding` structs. Formatters render them. Rules never know about output format. Formatters never know about PromQL.
 
 ## Test strategy
 

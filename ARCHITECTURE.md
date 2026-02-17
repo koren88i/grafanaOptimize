@@ -463,7 +463,12 @@ The MVP starts with a demo, not ends with one. Week 1 produces a running stack. 
 - ✓ Demo stack: Thanos query-frontend as optional docker-compose profile (`--profile optimized`).
 - Finding count: 92 → 96 on slow dashboard (B1, B5, Q11, Q12). Fixed dashboard: 0 findings, score 100.
 
-**Week 9–10: Grafana App Plugin.**
+**Week 9–10: Web UI parity + Grafana App Plugin.**
+- **Web UI parity (prerequisite before plugin work):** The standalone web UI is the only visual interface until the plugin ships. Bring it to feature parity with the CLI text formatter before building the plugin:
+  - Cardinality enrichment indicator ("enriched" vs "heuristic" badge in score card)
+  - Top expensive queries section (ranked by CostVisitor score)
+  - Confidence scores per finding (visual indicator when enriched)
+  - Save-to-Grafana flow (write fixed JSON back to provisioned dashboards folder)
 - Scaffold with `@grafana/create-plugin`.
 - Implement `checks.Check` interface from `grafana-advisor-app`.
 - Backend Go component running the analysis engine.
@@ -471,6 +476,12 @@ The MVP starts with a demo, not ends with one. Week 1 produces a running stack. 
 - Service account auth.
 - Test across Grafana 10.x, 11.x, 12.x.
 - **Demo evolution**: Advisor is now inside Grafana — no second tab needed.
+
+**Presentation parity checklist** — every milestone that adds new data to `Report` or `Finding` must update:
+- [ ] Text formatter (`pkg/output/text.go`)
+- [ ] JSON formatter (`pkg/output/json.go`)
+- [ ] Web UI (`web/index.html`)
+- [ ] Grafana plugin (when it exists)
 
 ### Phase 3: Runtime profiling + advanced features (weeks 11–16)
 
